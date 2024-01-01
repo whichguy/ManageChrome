@@ -1,58 +1,124 @@
 property shouldLog : true -- Set to false to disable logging
 property killChromeFirst : true -- Set to false to not kill Chrome at start
-property shouldDisplayLog : true -- Set to false to disable display dialog
+property shouldDisplayLog : false -- Set to false to disable display dialog
 property friendlyProfileName : "FS" -- Replace with the actual friendly name
 property firstDisplayURL : "https://www.youtube.com/watch?v=4R3Wha--xf4&list=PLDb25g2HgvQJ2k6Pl5TNS1D1XSs4RkTrH&t=906s&autoplay=1"
 property secondDisplayURL : "https://app.wodify.com/WOD/WODDisplay.aspx?WodHeaderId=17152571&GymProgramId=13228&Date=10%2f15%2f2023&LocationId=2634"
 property thirdDisplayURL : "https://athlete.trainheroic.com/#/training?pwId=44578695"
 
 property displayOrder : {2, 1, 3} -- Manually set this based on your current setup
+
+on sumToDisplayOne(displayDetails, arrangementOrder, index)
+	-- Base case: if the end of the arrangementOrder is reached, return 0
+	if index > (count of arrangementOrder) then
+		return 0
+	end if
+	
+	set currentDisplayNum to item index of arrangementOrder
+	
+	if currentDisplayNum is 1 then
+		return 0
+	end if
+	
+	-- Just get the current width sum
+	set currentWidth to item 2 of item currentDisplayNum of displayDetails as number
+	set aggregateWidth to (-1 * currentWidth)
+	
+	return aggregateWidth + sumToDisplayOne(displayDetails, arrangementOrder, index + 1)
+	
+end sumToDisplayOne
+
+on getLeftBound(displayDetails, arrangementOrder, index, displayNumber, multiplier)
+	-- Base case: if the end of the arrangementOrder is reached, return 0
+	if index > (count of arrangementOrder) then
+		return 0
+	end if
+	
+	set currentDisplayNum to item index of arrangementOrder
+	
+	-- Just get the current width sum
+	set currentWidth to item 2 of item currentDisplayNum of displayDetails as number
+	
+	if currentDisplayNum is 1 then
+		set multiplier to 1
+	end if
+	
+	set aggregateWidth to (multiplier * currentWidth)
+	
+	my customLog("Searching for left bound of Display:" & displayNumber & ", at index:" & index & " which is display: " & currentDisplayNum & ",  Width:" & aggregateWidth)
+	
+	if multiplier < 0 then
+		if currentDisplayNum is not displayNumber then
+			set toReturn to getLeftBound(displayDetails, arrangementOrder, index + 1, displayNumber, multiplier)
+			my customLog("Returning " & toReturn & " for Display: " & displayNumber)
+			return toReturn
+		else
+			set toReturn to aggregateWidth + sumToDisplayOne(displayDetails, arrangementOrder, index + 1)
+			my customLog("Returning " & toReturn & " for Display: " & displayNumber)
+			return toReturn
+		end if
+	else if currentDisplayNum is displayNumber then
+		
+		if currentDisplayNum is 1 then
+			set aggregateWidth to 0
+		end if
+		
+		my customLog("Searching for Display:" & displayNumber & ", Passed Display 1, and found " & displayNumber & " at index " & index & " returning 0")
+		return 0
+	else
+		my customLog("Positive multipler, aggregate: " & aggregateWidth & ", searching for next display")
+		set toReturn to aggregateWidth + getLeftBound(displayDetails, arrangementOrder, index + 1, displayNumber, multiplier)
+		my customLog("Returning " & toReturn & " for Display: " & displayNumber)
+		
+		return toReturn
+	end if
+	
+	
+end getLeftBound
+
+
 on getDisplayBounds(displayNumber)
 	try
 		-- Execute awk command to parse display data
 		set awkCommand to "system_profiler SPDisplaysDataType | awk '/^ {8}([A-Za-z]+)/ { gsub(\":\", \"\"); display_name = $1; next ;}/^ {10}UI Looks like: ([0-9]+) x ([0-9]+) @ ([0-9]+)/ { print display_name\",\"$4\",\"$6 }'"
 		
-		my customLog(awkCommand)
+		-- my customLog(awkCommand)
 		set displayData to do shell script awkCommand
 		set displayLines to paragraphs of displayData
 		
-		-- Create lists to hold the width and height of each display
-		set displayWidths to {}
-		set displayHeights to {}
+		-- Create a list to hold details of each display
+		set displayDetails to {}
 		
-		-- Populate the displayWidths and displayHeights lists
+		-- Populate the displayDetails list
 		repeat with displayLine in displayLines
 			set AppleScript's text item delimiters to ","
-			set displayDetails to text items of displayLine
+			set details to text items of displayLine
 			try
-				-- Add the width and height to the respective lists
-				copy item 2 of displayDetails as number to the end of displayWidths
-				copy item 3 of displayDetails as number to the end of displayHeights
+				-- Each element in displayDetails is a list with width and height of a display
+				copy details to the end of displayDetails
 			on error
 				my customLog("Error parsing display data: " & displayLine)
 			end try
 		end repeat
 		
-		-- Calculate left position
-		set leftPosition to 0
-		if displayNumber is 1 then
-			set leftPosition to 0
-		else
-			repeat with i from 1 to findIndexInList(displayNumber, displayOrder) - 1
-				set currentDisplay to item i of displayOrder
-				if currentDisplay is 1 then
-					set leftPosition to leftPosition + (item 1 of displayWidths)
-				else
-					set leftPosition to leftPosition - (item currentDisplay of displayWidths)
-				end if
-			end repeat
-		end if
+		-- Construct a detailed debug message for displayDetails
+		set debugMessage to "Display Details:
+"
+		repeat with i from 1 to count of displayDetails
+			set detail to item i of displayDetails
+			set debugMessage to debugMessage & "Display " & i & ": Name: " & item 1 of detail & ", Width: " & item 2 of detail & ", Height: " & item 3 of detail & "
+"
+		end repeat
+		-- my customLog(debugMessage)
+		
+		-- Call the recursive function to get the left position
+		set leftPosition to getLeftBound(displayDetails, displayOrder, 1, displayNumber, -1)
 		
 		-- Get width and height for the specified display
-		set currentDisplayWidth to item displayNumber of displayWidths
-		set currentDisplayHeight to item displayNumber of displayHeights
+		set currentDisplayWidth to item 2 of item displayNumber of displayDetails as number
+		set currentDisplayHeight to item 3 of item displayNumber of displayDetails as number
 		
-		-- Calculate right position
+		-- Calculate the right position
 		set rightPosition to leftPosition + currentDisplayWidth
 		
 		-- Set window bounds
@@ -66,25 +132,6 @@ on getDisplayBounds(displayNumber)
 end getDisplayBounds
 
 
-on calculateLeftPosition(displayNumber, displayOrder, displayWidths)
-	set leftPosition to 0
-	set display1Index to findIndexInList(1, displayOrder)
-	set targetDisplayIndex to findIndexInList(displayNumber, displayOrder)
-	
-	if targetDisplayIndex < display1Index then
-		-- Display is to the left of Display 1
-		repeat with i from targetDisplayIndex to display1Index - 1
-			set leftPosition to leftPosition - (item (item i of displayOrder) of displayWidths)
-		end repeat
-	else if targetDisplayIndex > display1Index then
-		-- Display is to the right of Display 1
-		repeat with i from display1Index + 1 to targetDisplayIndex
-			set leftPosition to leftPosition + (item (item i of displayOrder) of displayWidths)
-		end repeat
-	end if
-	
-	return leftPosition
-end calculateLeftPosition
 
 -- Helper function to find index of an item in a list
 on findIndexInList(itemToFind, theList)
@@ -97,17 +144,6 @@ on findIndexInList(itemToFind, theList)
 end findIndexInList
 
 
-
--- Function to find the index of a specific display in the system_profiler output
-on findDisplayIndex(displayName, displayData)
-	set AppleScript's text item delimiters to {displayName & ":", "Resolution: "}
-	set displaySections to text items of displayData
-	if (count of displaySections) > 2 then
-		return (count of text items in item 1 of displaySections) + 1
-	else
-		return -1 -- Display not found
-	end if
-end findDisplayIndex
 
 
 
