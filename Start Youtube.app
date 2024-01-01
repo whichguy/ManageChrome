@@ -3,7 +3,7 @@ property killChromeFirst : true -- Set to false to not kill Chrome at start
 property shouldDisplayLog : false -- Set to false to disable display dialog
 property friendlyProfileName : "FS" -- Replace with the actual friendly name
 property youtubeUrl : "https://www.youtube.com/watch?v=4R3Wha--xf4&list=PLDb25g2HgvQJ2k6Pl5TNS1D1XSs4RkTrH&t=906s&autoplay=1"
-property wodifyURL : "https://app.wodify.com/WOD/WODDisplay.aspx?WodHeaderId=17152571&GymProgramId=13228&Date=10%2f15%2f2023&LocationId=2634"
+property wodifyURL : "https://app.wodify.com/WOD/WODDisplay.aspx"
 property trainheroicUrl : "https://athlete.trainheroic.com/#/training?pwId=44578695"
 property chromePath : "/Applications/Google Chrome.app"
 
