@@ -4,7 +4,7 @@ property shouldDisplayLog : false -- Set to false to disable display dialog
 property friendlyProfileName : "FS" -- Replace with the actual friendly name
 property youtubeUrl : "https://www.youtube.com/watch?v=4R3Wha--xf4&list=PLDb25g2HgvQJ2k6Pl5TNS1D1XSs4RkTrH&t=906s&autoplay=1"
 property wodifyURL : "https://app.wodify.com/WOD/WODDisplay.aspx"
-property trainheroicUrl : "https://athlete.trainheroic.com/#/training?pwId=44578695"
+property trainheroicUrl : "https://athlete.trainheroic.com/#/leaderboard/full?lb=true&pwId=76996065"
 property chromePath : "/Applications/Google Chrome.app"
 
 property displayOrder : {2, 1, 3} -- Manually set this based on your current setup
