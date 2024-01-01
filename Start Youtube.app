@@ -2,9 +2,10 @@ property shouldLog : true -- Set to false to disable logging
 property killChromeFirst : true -- Set to false to not kill Chrome at start
 property shouldDisplayLog : false -- Set to false to disable display dialog
 property friendlyProfileName : "FS" -- Replace with the actual friendly name
-property firstDisplayURL : "https://www.youtube.com/watch?v=4R3Wha--xf4&list=PLDb25g2HgvQJ2k6Pl5TNS1D1XSs4RkTrH&t=906s&autoplay=1"
-property secondDisplayURL : "https://app.wodify.com/WOD/WODDisplay.aspx?WodHeaderId=17152571&GymProgramId=13228&Date=10%2f15%2f2023&LocationId=2634"
-property thirdDisplayURL : "https://athlete.trainheroic.com/#/training?pwId=44578695"
+property youtubeUrl : "https://www.youtube.com/watch?v=4R3Wha--xf4&list=PLDb25g2HgvQJ2k6Pl5TNS1D1XSs4RkTrH&t=906s&autoplay=1"
+property wodifyURL : "https://app.wodify.com/WOD/WODDisplay.aspx?WodHeaderId=17152571&GymProgramId=13228&Date=10%2f15%2f2023&LocationId=2634"
+property trainheroicUrl : "https://athlete.trainheroic.com/#/training?pwId=44578695"
+property chromePath : "/Applications/Google Chrome.app"
 
 property displayOrder : {2, 1, 3} -- Manually set this based on your current setup
 
@@ -76,30 +77,28 @@ on getLeftBound(displayDetails, arrangementOrder, index, displayNumber, multipli
 	
 end getLeftBound
 
+on fetchDisplayDetails()
+	set awkCommand to "system_profiler SPDisplaysDataType | awk '/^ {8}([A-Za-z]+)/ { gsub(\":\", \"\"); display_name = $1; next ;}/^ {10}UI Looks like: ([0-9]+) x ([0-9]+) @ ([0-9]+)/ { print display_name\",\"$4\",\"$6 }'"
+	set displayData to do shell script awkCommand
+	set displayLines to paragraphs of displayData
+	set displayDetails to {}
+	repeat with displayLine in displayLines
+		set AppleScript's text item delimiters to ","
+		set details to text items of displayLine
+		try
+			copy details to the end of displayDetails
+		on error errMsg
+			my customLog("Error parsing display data: " & errMsg)
+		end try
+	end repeat
+	return displayDetails
+end fetchDisplayDetails
+
 
 on getDisplayBounds(displayNumber)
 	try
-		-- Execute awk command to parse display data
-		set awkCommand to "system_profiler SPDisplaysDataType | awk '/^ {8}([A-Za-z]+)/ { gsub(\":\", \"\"); display_name = $1; next ;}/^ {10}UI Looks like: ([0-9]+) x ([0-9]+) @ ([0-9]+)/ { print display_name\",\"$4\",\"$6 }'"
-		
-		-- my customLog(awkCommand)
-		set displayData to do shell script awkCommand
-		set displayLines to paragraphs of displayData
-		
 		-- Create a list to hold details of each display
-		set displayDetails to {}
-		
-		-- Populate the displayDetails list
-		repeat with displayLine in displayLines
-			set AppleScript's text item delimiters to ","
-			set details to text items of displayLine
-			try
-				-- Each element in displayDetails is a list with width and height of a display
-				copy details to the end of displayDetails
-			on error
-				my customLog("Error parsing display data: " & displayLine)
-			end try
-		end repeat
+		set displayDetails to fetchDisplayDetails()
 		
 		-- Construct a detailed debug message for displayDetails
 		set debugMessage to "Display Details:
@@ -130,22 +129,6 @@ on getDisplayBounds(displayNumber)
 		return {0, 0, 0, 0} -- Return default resolution on error
 	end try
 end getDisplayBounds
-
-
-
--- Helper function to find index of an item in a list
-on findIndexInList(itemToFind, theList)
-	repeat with i from 1 to count of theList
-		if item i of theList is itemToFind then
-			return i
-		end if
-	end repeat
-	return 0
-end findIndexInList
-
-
-
-
 
 -- Custom Log Function
 on customLog(message)
@@ -200,10 +183,10 @@ on decideURL(displayNumber)
 	set currentDay to weekday of currentTime
 	
 	-- Define labels with corresponding display URLs using lists of records
-	set morningCrossfit to {{display:1, URL:secondDisplayURL}, {display:2, URL:firstDisplayURL}, {display:3, URL:secondDisplayURL}}
-	set advancedClass to {{display:1, URL:secondDisplayURL}, {display:2, URL:firstDisplayURL}, {display:3, URL:firstDisplayURL}}
-	set crossfit to {{display:1, URL:secondDisplayURL}, {display:2, URL:firstDisplayURL}, {display:3, URL:secondDisplayURL}}
-	set barbellClass to {{display:1, URL:secondDisplayURL}, {display:2, URL:firstDisplayURL}, {display:3, URL:firstDisplayURL}}
+	set morningCrossfit to {{display:1, URL:wodifyURL}, {display:2, URL:youtubeUrl}, {display:3, URL:youtubeUrl}}
+	set advancedClass to {{display:1, URL:trainheroicUrl}, {display:2, URL:youtubeUrl}, {display:3, URL:trainheroicUrl}}
+	set crossfit to {{display:1, URL:wodifyURL}, {display:2, URL:youtubeUrl}, {display:3, URL:wodifyURL}}
+	set barbellClass to {{display:1, URL:trainheroicUrl}, {display:2, URL:youtubeUrl}, {display:3, URL:trainheroicUrl}}
 	
 	-- Determine the appropriate label based on current time and day
 	set label to {}
@@ -326,11 +309,10 @@ on openChromeWindowWithURL(theURL, theBounds)
 			
 			-- Set the bounds of the new window
 			set bounds of newWindow to theBounds
-			-- delay 2
-			-- set bounds of newWindow to theBounds
 		end tell
 		
-		
+		-- Ensure the new tab is active
+		set activeTab to newTab
 		
 		-- Close the default "new tab" if it is present
 		delay 1 -- Wait for the window and tabs to initialize
@@ -342,13 +324,6 @@ on openChromeWindowWithURL(theURL, theBounds)
 			end repeat
 		end if
 		
-		-- Optional: Fullscreen keystroke
-		--delay 3 -- Additional delay before fullscreen command
-		--tell application "System Events"
-		--	tell process "Google Chrome"
-		--		keystroke "f" using {command down, control down} -- Fullscreen command
-		--	end tell
-		--end tell
 	end tell
 end openChromeWindowWithURL
 
@@ -363,12 +338,17 @@ on run {input, parameters}
 		my closeChromeGracefully()
 	end if
 	
+	set displayDetails to fetchDisplayDetails()
 	
 	-- Fetch window bounds and open windows on each display
 	my customLog("Fetching window bounds for each display.")
 	set windowBounds1 to my getDisplayBounds(1)
 	set windowBounds2 to my getDisplayBounds(2)
-	set windowBounds3 to my getDisplayBounds(3)
+	
+	-- Check if there are at least 3 displays before setting bounds for Display 3
+	if (count of displayDetails) ≥ 3 then
+		set windowBounds3 to my getDisplayBounds(3)
+	end if
 	
 	-- Log the window bounds for each display in a formatted manner
 	my customLog("Display bounds: " & "Display 1: {Left: " & item 1 of windowBounds1 & ", Top: " & item 2 of windowBounds1 & ", Right: " & item 3 of windowBounds1 & ", Bottom: " & item 4 of windowBounds1 & "}, Display 2: {Left: " & item 1 of windowBounds2 & ", Top: " & item 2 of windowBounds2 & ", Right: " & item 3 of windowBounds2 & ", Bottom: " & item 4 of windowBounds2 & "}, Display 3: {Left: " & item 1 of windowBounds3 & ", Top: " & item 2 of windowBounds3 & ", Right: " & item 3 of windowBounds3 & ", Bottom: " & item 4 of windowBounds3 & "}")
@@ -382,7 +362,6 @@ on run {input, parameters}
 	my customLog("Display URLs: Display 1 URL: " & URL1 & ", Display 2 URL: " & URL2 & ", Display 3 URL: " & URL3)
 	
 	my customLog("Launching Google Chrome with the specified profile: " & friendlyProfileName)
-	set chromePath to "/Applications/Google Chrome.app"
 	set profileDirectory to my mapProfileNameToFriendlyName(friendlyProfileName)
 	if profileDirectory is "" then
 		my customLog("Profile not found: " & friendlyProfileName)
@@ -396,7 +375,10 @@ on run {input, parameters}
 	my customLog("Opening Chrome windows on each display.")
 	my openChromeWindowWithURL(URL1, windowBounds1)
 	my openChromeWindowWithURL(URL2, windowBounds2)
-	my openChromeWindowWithURL(URL3, windowBounds3)
+	if (count of displayDetails) ≥ 3 then
+		my openChromeWindowWithURL(URL3, windowBounds3)
+	end if
+	
 	
 	my customLog("Script execution completed.")
 	return input
