@@ -1,18 +1,140 @@
-property shouldLog : false -- Set to false to disable logging
+property shouldLog : true -- Set to false to disable logging
 property killChromeFirst : true -- Set to false to not kill Chrome at start
 property shouldDisplayLog : true -- Set to false to disable display dialog
 property friendlyProfileName : "FS" -- Replace with the actual friendly name
+property firstDisplayURL : "https://www.youtube.com/watch?v=4R3Wha--xf4&list=PLDb25g2HgvQJ2k6Pl5TNS1D1XSs4RkTrH&t=906s&autoplay=1"
+property secondDisplayURL : "https://app.wodify.com/WOD/WODDisplay.aspx?WodHeaderId=17152571&GymProgramId=13228&Date=10%2f15%2f2023&LocationId=2634"
+property thirdDisplayURL : "https://athlete.trainheroic.com/#/training?pwId=44578695"
+
+property displayOrder : {2, 1, 3} -- Manually set this based on your current setup
+on getDisplayBounds(displayNumber)
+	try
+		-- Execute awk command to parse display data
+		set awkCommand to "system_profiler SPDisplaysDataType | awk '/^ {8}([A-Za-z]+)/ { gsub(\":\", \"\"); display_name = $1; next ;}/^ {10}UI Looks like: ([0-9]+) x ([0-9]+) @ ([0-9]+)/ { print display_name\",\"$4\",\"$6 }'"
+		
+		my customLog(awkCommand)
+		set displayData to do shell script awkCommand
+		set displayLines to paragraphs of displayData
+		
+		-- Create lists to hold the width and height of each display
+		set displayWidths to {}
+		set displayHeights to {}
+		
+		-- Populate the displayWidths and displayHeights lists
+		repeat with displayLine in displayLines
+			set AppleScript's text item delimiters to ","
+			set displayDetails to text items of displayLine
+			try
+				-- Add the width and height to the respective lists
+				copy item 2 of displayDetails as number to the end of displayWidths
+				copy item 3 of displayDetails as number to the end of displayHeights
+			on error
+				my customLog("Error parsing display data: " & displayLine)
+			end try
+		end repeat
+		
+		-- Calculate left position
+		set leftPosition to 0
+		if displayNumber is 1 then
+			set leftPosition to 0
+		else
+			repeat with i from 1 to findIndexInList(displayNumber, displayOrder) - 1
+				set currentDisplay to item i of displayOrder
+				if currentDisplay is 1 then
+					set leftPosition to leftPosition + (item 1 of displayWidths)
+				else
+					set leftPosition to leftPosition - (item currentDisplay of displayWidths)
+				end if
+			end repeat
+		end if
+		
+		-- Get width and height for the specified display
+		set currentDisplayWidth to item displayNumber of displayWidths
+		set currentDisplayHeight to item displayNumber of displayHeights
+		
+		-- Calculate right position
+		set rightPosition to leftPosition + currentDisplayWidth
+		
+		-- Set window bounds
+		set windowBounds to {leftPosition, 0, rightPosition, currentDisplayHeight}
+		set AppleScript's text item delimiters to ""
+		return windowBounds
+	on error errMsg
+		my customLog("Error fetching display settings: " & errMsg)
+		return {0, 0, 0, 0} -- Return default resolution on error
+	end try
+end getDisplayBounds
+
+
+on calculateLeftPosition(displayNumber, displayOrder, displayWidths)
+	set leftPosition to 0
+	set display1Index to findIndexInList(1, displayOrder)
+	set targetDisplayIndex to findIndexInList(displayNumber, displayOrder)
+	
+	if targetDisplayIndex < display1Index then
+		-- Display is to the left of Display 1
+		repeat with i from targetDisplayIndex to display1Index - 1
+			set leftPosition to leftPosition - (item (item i of displayOrder) of displayWidths)
+		end repeat
+	else if targetDisplayIndex > display1Index then
+		-- Display is to the right of Display 1
+		repeat with i from display1Index + 1 to targetDisplayIndex
+			set leftPosition to leftPosition + (item (item i of displayOrder) of displayWidths)
+		end repeat
+	end if
+	
+	return leftPosition
+end calculateLeftPosition
+
+-- Helper function to find index of an item in a list
+on findIndexInList(itemToFind, theList)
+	repeat with i from 1 to count of theList
+		if item i of theList is itemToFind then
+			return i
+		end if
+	end repeat
+	return 0
+end findIndexInList
+
+
+
+-- Function to find the index of a specific display in the system_profiler output
+on findDisplayIndex(displayName, displayData)
+	set AppleScript's text item delimiters to {displayName & ":", "Resolution: "}
+	set displaySections to text items of displayData
+	if (count of displaySections) > 2 then
+		return (count of text items in item 1 of displaySections) + 1
+	else
+		return -1 -- Display not found
+	end if
+end findDisplayIndex
+
 
 
 -- Custom Log Function
 on customLog(message)
 	if shouldLog then
+		-- Retrieve the name of the script
+		set scriptName to name of me
+		
+		-- Log to the AppleScript log
 		log message
+		
+		-- Write the message to syslog with the script name
+		-- do shell script "logger -t '" & scriptName & "' '" & message & "'"
+		
+		-- Display dialog if the setting is enabled
 		if shouldDisplayLog then
-			display dialog message buttons {"OK"} default button "OK"
+			try
+				display dialog message buttons {"Cancel", "OK"} default button "OK" cancel button "Cancel"
+			on error number -128
+				error "Script cancelled by user."
+			end try
 		end if
 	end if
 end customLog
+
+
 
 -- Function to Gracefully Close Chrome and Force Quit if Necessary
 on closeChromeGracefully()
@@ -34,46 +156,51 @@ on closeChromeGracefully()
 	end tell
 end closeChromeGracefully
 
--- Function to get display settings and return window bounds for the specified or first display
-on getDisplayBounds(displayName)
-	try
-		-- Fetch display data
-		set displayData to do shell script "system_profiler SPDisplaysDataType"
-		set AppleScript's text item delimiters to {"Resolution: ", "UI Looks like: ", " @ ", " x ", "
-"}
-		set displayResolutions to text items of displayData
-		
-		-- Find the resolution of the specified or first display
-		set displayIndex to 2 -- Default to the first display
-		if displayName is not "" then
-			set displayIndex to my findDisplayIndex(displayName, displayData)
-		end if
-		if displayIndex is not -1 then
-			set screenWidth to item (displayIndex + 2) of displayResolutions
-			set screenHeight to item (displayIndex + 3) of displayResolutions
+-- Function to decide the URL based on current time, day, and display number
+on decideURL(displayNumber)
+	set currentTime to current date
+	set currentHour to hours of currentTime
+	set currentMinutes to minutes of currentTime
+	set currentDay to weekday of currentTime
+	
+	-- Define labels with corresponding display URLs using lists of records
+	set morningCrossfit to {{display:1, URL:secondDisplayURL}, {display:2, URL:firstDisplayURL}, {display:3, URL:secondDisplayURL}}
+	set advancedClass to {{display:1, URL:secondDisplayURL}, {display:2, URL:firstDisplayURL}, {display:3, URL:firstDisplayURL}}
+	set crossfit to {{display:1, URL:secondDisplayURL}, {display:2, URL:firstDisplayURL}, {display:3, URL:secondDisplayURL}}
+	set barbellClass to {{display:1, URL:secondDisplayURL}, {display:2, URL:firstDisplayURL}, {display:3, URL:firstDisplayURL}}
+	
+	-- Determine the appropriate label based on current time and day
+	set label to {}
+	if currentDay is not Saturday and currentDay is not Sunday and (currentHour ≥ 5 and currentHour < 15) then
+		set label to morningCrossfit
+	else if ((currentDay is Monday or currentDay is Wednesday or currentDay is Friday) and (currentHour ≥ 15 and currentHour < 17)) then
+		set label to advancedClass
+	else if ((currentDay is Monday or currentDay is Wednesday or currentDay is Friday) and currentHour ≥ 17) then
+		set label to crossfit
+	else if ((currentDay is Tuesday or currentDay is Thursday) and (currentHour ≥ 15 and currentHour < 19)) then
+		set label to barbellClass
+	else if currentDay is Saturday then
+		if currentHour = 8 and currentMinutes < 55 then
+			set label to morningCrossfit
+		else if currentHour = 8 and currentMinutes ≥ 55 then
+			set label to barbellClass
 		else
-			set {screenWidth, screenHeight} to defaultResolution
+			set label to advancedClass
 		end if
-		set AppleScript's text item delimiters to ""
-		
-		set windowBounds to {0, 25, screenWidth, screenHeight + 25}
-		return windowBounds
-	on error errMsg
-		my customLog("Error fetching display settings: " & errMsg)
-		return {0, 0, defaultResolution's item 1, (defaultResolution's item 2) + 25} -- Return default resolution
-	end try
-end getDisplayBounds
-
--- Function to find the index of a specific display in the system_profiler output
-on findDisplayIndex(displayName, displayData)
-	set AppleScript's text item delimiters to {displayName & ":", "Resolution: "}
-	set displaySections to text items of displayData
-	if (count of displaySections) > 2 then
-		return (count of text items in item 1 of displaySections) + 1
-	else
-		return -1 -- Display not found
+	else if currentDay is Sunday then
+		set label to morningCrossfit
 	end if
-end findDisplayIndex
+	
+	-- Get URL for the specific display number
+	repeat with currentSetting in label
+		if (display of currentSetting) is displayNumber then
+			return (URL of currentSetting)
+		end if
+	end repeat
+	
+	-- Default URL if no label matches
+	return firstDisplayURL
+end decideURL
 
 -- Function to Extract Profile Name from JSON Text
 on extractProfileName(jsonText)
@@ -146,131 +273,95 @@ on mapProfileNameToFriendlyName(friendlyName)
 	return ""
 end mapProfileNameToFriendlyName
 
+on openChromeWindowWithURL(theURL, theBounds)
+	tell application "Google Chrome"
+		-- Create a new window and open the URL
+		set newWindow to make new window
+		tell newWindow
+			set newTab to make new tab with properties {URL:theURL}
+			activate newWindow
+			
+			-- Wait for the new tab to finish loading
+			set loadWaitTime to 0
+			repeat until (title of newTab is not "New Tab") or (loadWaitTime is greater than 30) -- 30 seconds timeout
+				delay 1
+				set loadWaitTime to loadWaitTime + 1
+			end repeat
+			
+			-- Set the bounds of the new window
+			set bounds of newWindow to theBounds
+			-- delay 2
+			-- set bounds of newWindow to theBounds
+		end tell
+		
+		
+		
+		-- Close the default "new tab" if it is present
+		delay 1 -- Wait for the window and tabs to initialize
+		if (count of tabs of newWindow) > 1 then
+			repeat with t from (count of tabs of newWindow) to 1 by -1
+				if URL of tab t of newWindow is "chrome://newtab/" then
+					close tab t of newWindow
+				end if
+			end repeat
+		end if
+		
+		-- Optional: Fullscreen keystroke
+		--delay 3 -- Additional delay before fullscreen command
+		--tell application "System Events"
+		--	tell process "Google Chrome"
+		--		keystroke "f" using {command down, control down} -- Fullscreen command
+		--	end tell
+		--end tell
+	end tell
+end openChromeWindowWithURL
+
+
 -- Main Script
 on run {input, parameters}
-	-- Debugging Chrome Profile Mappings
-	my debugProfileMappings()
+	my customLog("Starting the script execution.")
 	
-	-- Determine which display to use
-	set selectedDisplay to "" -- Default display
-	if (count of parameters) > 0 and item 1 of parameters is not "" then
-		set selectedDisplay to item 1 of parameters
-	end if
-	my customLog("Selected display: " & selectedDisplay)
-	
-	
-	-- Kill Chrome if flag is set
+	-- Kill and restart Chrome at the beginning of the script
 	if killChromeFirst then
-		my customLog("About to wait for Chrome to close.")
+		my customLog("Attempting to close and restart Google Chrome.")
 		my closeChromeGracefully()
 	end if
 	
-	set youtubeURL to "https://www.youtube.com/watch?v=4R3Wha--xf4&list=PLDb25g2HgvQJ2k6Pl5TNS1D1XSs4RkTrH&t=906s&autoplay=1"
-	my customLog("YouTube URL set.")
+	
+	-- Fetch window bounds and open windows on each display
+	my customLog("Fetching window bounds for each display.")
+	set windowBounds1 to my getDisplayBounds(1)
+	set windowBounds2 to my getDisplayBounds(2)
+	set windowBounds3 to my getDisplayBounds(3)
+	
+	-- Log the window bounds for each display in a formatted manner
+	my customLog("Display bounds: " & "Display 1: {Left: " & item 1 of windowBounds1 & ", Top: " & item 2 of windowBounds1 & ", Right: " & item 3 of windowBounds1 & ", Bottom: " & item 4 of windowBounds1 & "}, Display 2: {Left: " & item 1 of windowBounds2 & ", Top: " & item 2 of windowBounds2 & ", Right: " & item 3 of windowBounds2 & ", Bottom: " & item 4 of windowBounds2 & "}, Display 3: {Left: " & item 1 of windowBounds3 & ", Top: " & item 2 of windowBounds3 & ", Right: " & item 3 of windowBounds3 & ", Bottom: " & item 4 of windowBounds3 & "}")
+	
+	
+	set URL1 to my decideURL(1)
+	set URL2 to my decideURL(2)
+	set URL3 to my decideURL(3)
+	
+	-- Log URLs for each display
+	my customLog("Display URLs: Display 1 URL: " & URL1 & ", Display 2 URL: " & URL2 & ", Display 3 URL: " & URL3)
+	
+	my customLog("Launching Google Chrome with the specified profile: " & friendlyProfileName)
 	set chromePath to "/Applications/Google Chrome.app"
-	
-	-- Define the profile name to use
 	set profileDirectory to my mapProfileNameToFriendlyName(friendlyProfileName)
-	
 	if profileDirectory is "" then
 		my customLog("Profile not found: " & friendlyProfileName)
 		return "Profile not found"
 	end if
 	
-	-- Fetch window bounds for the selected or first display
-	set windowBounds to my getDisplayBounds(selectedDisplay)
-	my customLog("Window bounds: " & windowBounds)
+	do shell script "open -a '" & chromePath & "' --args --profile-directory='" & profileDirectory & "' --disable-session-crashed-bubble"
+	-- wait for chrome to launch
+	delay 1
 	
-	tell application "System Events"
-		set chromeRunning to (count of (every process whose name is "Google Chrome")) > 0
-	end tell
-	my customLog("Checked if Chrome is running: " & chromeRunning)
+	my customLog("Opening Chrome windows on each display.")
+	my openChromeWindowWithURL(URL1, windowBounds1)
+	my openChromeWindowWithURL(URL2, windowBounds2)
+	my openChromeWindowWithURL(URL3, windowBounds3)
 	
-	set found to false
-	if chromeRunning then
-		tell application "Google Chrome"
-			repeat with w from 1 to count of windows
-				set windowTabs to tabs of window w
-				repeat with t from 1 to count of windowTabs
-					if URL of item t of windowTabs starts with "https://www.youtube.com" then
-						my customLog("YouTube tab found in window " & w & ", tab " & t)
-						set URL of item t of windowTabs to youtubeURL
-						my customLog("Set URL of tab " & t & " of window " & w)
-						activate
-						my customLog("Activating Chrome and bringing window " & w & " to the front.")
-						set index of window w to 1 -- Bring the window to the front
-						set active tab index of window w to t
-						my customLog("Set active tab index to " & t & " of window " & w)
-						set bounds of window w to windowBounds
-						my customLog("Set bounds of window " & w)
-						set found to true
-						exit repeat
-					end if
-				end repeat
-				if found then
-					set bounds of window w to windowBounds
-					exit repeat
-				end if
-			end repeat
-			if not found then
-				my customLog("No YouTube tab found. Opening new window.")
-				set newWindow to make new window
-				tell newWindow
-					set newTab to make new tab with properties {URL:youtubeURL}
-					set bounds to windowBounds
-				end tell
-				delay 5 -- Increased delay to allow the YouTube video to fully load
-				activate
-				my customLog("Activating Chrome and setting index of new window to 1.")
-				set index of newWindow to 1 -- Bring the window to the front
-				repeat with t from (count of tabs of newWindow) to 1 by -1
-					if URL of tab t of newWindow is "chrome://newtab/" then
-						close tab t of newWindow
-						my customLog("Closed new tab at position " & t)
-					end if
-				end repeat
-				set active tab index of newWindow to 1
-				my customLog("Set active tab index of new window to 1.")
-			end if
-		end tell
-	else
-		my customLog("Chrome is not running. Opening Chrome with profile.")
-		do shell script "open -a '" & chromePath & "' --args --profile-directory='" & profileDirectory & "' --disable-session-crashed-bubble"
-		
-		delay 5 -- Increased delay to allow the YouTube video to fully load
-		tell application "Google Chrome"
-			my customLog("Creating new window in Chrome.")
-			set newWindow to make new window
-			tell newWindow
-				set newTab to make new tab with properties {URL:youtubeURL}
-				set bounds to windowBounds
-			end tell
-			delay 5 -- Increased delay to allow the YouTube video to fully load
-			activate
-			my customLog("Activating Chrome and setting index of new window to 1.")
-			set index of newWindow to 1 -- Bring the window to the front
-			repeat with t from (count of tabs of newWindow) to 1 by -1
-				if URL of tab t of newWindow is "chrome://newtab/" then
-					close tab t of newWindow
-					my customLog("Closed new tab at position " & t)
-				end if
-			end repeat
-			set active tab index of newWindow to 1
-			my customLog("Set active tab index of new window to 1.")
-		end tell
-	end if
-	
-	delay 7 -- adjust delay for video to start and gain focus
-	
-	my customLog("Sending keystroke for fullscreen.")
-	tell application "System Events"
-		tell process "Google Chrome"
-			keystroke "f" -- Fullscreen command
-		end tell
-	end tell
-	
-	my customLog("Script completed.")
-	
-	
+	my customLog("Script execution completed.")
 	return input
 end run
