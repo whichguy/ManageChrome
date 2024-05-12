@@ -2,9 +2,9 @@ property shouldLog : true -- Set to false to disable logging
 property killChromeFirst : true -- Set to false to not kill Chrome at start
 property shouldDisplayLog : false -- Set to false to disable display dialog
 property friendlyProfileName : "FS" -- Replace with the actual friendly name
-property youtubeUrl : "https://www.youtube.com/watch?v=4R3Wha--xf4&list=PLDb25g2HgvQJ2k6Pl5TNS1D1XSs4RkTrH&t=906s&autoplay=1"
-property wodifyURL : "https://app.wodify.com/WOD/WODDisplay.aspx"
-property trainheroicUrl : "https://athlete.trainheroic.com/#/leaderboard/full?lb=true&pwId=76996065"
+property youtubeURL : "https://www.youtube.com/watch?v=YHlr_Bikeb8&list=PLEvgYDv24Pn00SuSSYC03C5HrZ_kNE9JP"
+property wodifyURL : "https://app.wodify.com/WOD/WODDisplay.aspx#"
+property trainheroicUrl : "https://athlete.trainheroic.com/#/leaderboard/full?pwId=76996065"
 property chromePath : "/Applications/Google Chrome.app"
 
 property displayOrder : {2, 1, 3} -- Manually set this based on your current setup
@@ -126,7 +126,7 @@ on getDisplayBounds(displayNumber)
 		return windowBounds
 	on error errMsg
 		my customLog("Error fetching display settings: " & errMsg)
-		return {0, 0, 0, 0} -- Return default resolution on error
+		return {"None", 0, 0} -- Return default resolution on error
 	end try
 end getDisplayBounds
 
@@ -183,10 +183,10 @@ on decideURL(displayNumber)
 	set currentDay to weekday of currentTime
 	
 	-- Define labels with corresponding display URLs using lists of records
-	set morningCrossfit to {{display:1, URL:wodifyURL}, {display:2, URL:youtubeUrl}, {display:3, URL:youtubeUrl}}
-	set advancedClass to {{display:1, URL:trainheroicUrl}, {display:2, URL:youtubeUrl}, {display:3, URL:trainheroicUrl}}
-	set crossfit to {{display:1, URL:wodifyURL}, {display:2, URL:youtubeUrl}, {display:3, URL:wodifyURL}}
-	set barbellClass to {{display:1, URL:trainheroicUrl}, {display:2, URL:youtubeUrl}, {display:3, URL:trainheroicUrl}}
+	set morningCrossfit to {{display:1, URL:wodifyURL}, {display:2, URL:youtubeURL}, {display:3, URL:youtubeURL}}
+	set advancedClass to {{display:1, URL:trainheroicUrl}, {display:2, URL:youtubeURL}, {display:3, URL:trainheroicUrl}}
+	set crossfit to {{display:1, URL:wodifyURL}, {display:2, URL:youtubeURL}, {display:3, URL:wodifyURL}}
+	set barbellClass to {{display:1, URL:trainheroicUrl}, {display:2, URL:youtubeURL}, {display:3, URL:trainheroicUrl}}
 	
 	-- Determine the appropriate label based on current time and day
 	set label to {}
@@ -327,41 +327,39 @@ on openChromeWindowWithURL(theURL, theBounds)
 	end tell
 end openChromeWindowWithURL
 
-
--- Main Script
 on run {input, parameters}
-	my customLog("Starting the script execution.")
+	my customLog("Starting script execution.")
 	
-	-- Kill and restart Chrome at the beginning of the script
+	-- Attempt to close and restart Chrome if required
 	if killChromeFirst then
-		my customLog("Attempting to close and restart Google Chrome.")
+		my customLog("Closing and restarting Google Chrome.")
 		my closeChromeGracefully()
 	end if
 	
+	-- Fetch display configurations
 	set displayDetails to fetchDisplayDetails()
+	set numDisplays to count of displayDetails
+	set windowBounds1 to {0, 0, 0, 0}
+	set windowBounds2 to {0, 0, 0, 0}
+	set windowBounds3 to {0, 0, 0, 0} -- Initialize with default bounds
 	
-	-- Fetch window bounds and open windows on each display
-	my customLog("Fetching window bounds for each display.")
-	set windowBounds1 to my getDisplayBounds(1)
-	set windowBounds2 to my getDisplayBounds(2)
+	-- Assign window bounds based on the number of detected displays
+	if numDisplays > 0 then set windowBounds1 to my getDisplayBounds(1)
+	if numDisplays > 1 then set windowBounds2 to my getDisplayBounds(2)
+	if numDisplays > 2 then set windowBounds3 to my getDisplayBounds(3) -- Use the third display without checking its name
 	
-	-- Check if there are at least 3 displays before setting bounds for Display 3
-	if (count of displayDetails) ≥ 3 then
-		set windowBounds3 to my getDisplayBounds(3)
-	end if
+	-- Log the window bounds for each display
+	my customLog("Display bounds for Display 1: " & windowBounds1)
+	my customLog("Display bounds for Display 2: " & windowBounds2)
+	my customLog("Display bounds for Display 3: " & windowBounds3)
 	
-	-- Log the window bounds for each display in a formatted manner
-	my customLog("Display bounds: " & "Display 1: {Left: " & item 1 of windowBounds1 & ", Top: " & item 2 of windowBounds1 & ", Right: " & item 3 of windowBounds1 & ", Bottom: " & item 4 of windowBounds1 & "}, Display 2: {Left: " & item 1 of windowBounds2 & ", Top: " & item 2 of windowBounds2 & ", Right: " & item 3 of windowBounds2 & ", Bottom: " & item 4 of windowBounds2 & "}, Display 3: {Left: " & item 1 of windowBounds3 & ", Top: " & item 2 of windowBounds3 & ", Right: " & item 3 of windowBounds3 & ", Bottom: " & item 4 of windowBounds3 & "}")
-	
-	
+	-- Define URLs based on display settings
 	set URL1 to my decideURL(1)
 	set URL2 to my decideURL(2)
-	set URL3 to my decideURL(3)
+	set URL3 to "No URL"
+	if numDisplays > 2 then set URL3 to my decideURL(3)
 	
-	-- Log URLs for each display
-	my customLog("Display URLs: Display 1 URL: " & URL1 & ", Display 2 URL: " & URL2 & ", Display 3 URL: " & URL3)
-	
-	my customLog("Launching Google Chrome with the specified profile: " & friendlyProfileName)
+	-- Launch Chrome with a specified profile
 	set profileDirectory to my mapProfileNameToFriendlyName(friendlyProfileName)
 	if profileDirectory is "" then
 		my customLog("Profile not found: " & friendlyProfileName)
@@ -369,16 +367,26 @@ on run {input, parameters}
 	end if
 	
 	do shell script "open -a '" & chromePath & "' --args --profile-directory='" & profileDirectory & "' --disable-session-crashed-bubble"
-	-- wait for chrome to launch
-	delay 1
+	delay 1 -- Allow Chrome to launch
 	
-	my customLog("Opening Chrome windows on each display.")
+	-- Open URLs in Chrome on the appropriate displays
 	my openChromeWindowWithURL(URL1, windowBounds1)
-	my openChromeWindowWithURL(URL2, windowBounds2)
-	if (count of displayDetails) ≥ 3 then
-		my openChromeWindowWithURL(URL3, windowBounds3)
-	end if
+	if numDisplays > 1 then my openChromeWindowWithURL(URL2, windowBounds2)
+	if numDisplays > 2 then my openChromeWindowWithURL(URL3, windowBounds3)
 	
+	delay 7 -- Allow windows to initialize
+	
+	-- Activate Chrome and send the fullscreen command
+	tell application "Google Chrome"
+		activate
+		delay 1 -- Ensure Chrome is active
+		try
+			tell application "System Events" to keystroke "f" -- Fullscreen command
+			my customLog("Fullscreen command sent successfully.")
+		on error errMsg
+			my customLog("Failed to send fullscreen command: " & errMsg)
+		end try
+	end tell
 	
 	my customLog("Script execution completed.")
 	return input
